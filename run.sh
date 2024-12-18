@@ -9,7 +9,8 @@ else
     echo "Virtual environment already exists."
 fi
 
-uv pip install -U syftbox tqdm
+uv pip install -U syftbox
+uv pip install -r requirements.txt
 
 . .venv/bin/activate
 
