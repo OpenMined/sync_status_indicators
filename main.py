@@ -2,6 +2,7 @@ import httpx
 import json
 import logging
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from enum import Enum
@@ -19,6 +20,8 @@ logging.basicConfig(
 client: Client = Client.load()
 
 DATA_DIR: Path = client.api_data()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 SYNC_STATE_ENDPOINT: str = f"{client.config.client_url}sync/state"
 
 state_path: Path = DATA_DIR / "state.json"
@@ -112,11 +115,13 @@ def apply() -> None:
     try:
         with PidFile(pidname="sync_status_indicators.pid", piddir=DATA_DIR):
             sync_state = fetch_sync_state()
+            logging.info(f"Fetched {len(sync_state)} items from sync state.")
             sync_state_fetch_timestamp = datetime.now()
             if not sync_state:
                 return
 
             last_synced = load_last_synced()
+            logging.info(f"Last synced: {last_synced or 'Never'}")
             buffer = timedelta(seconds=2)
 
             if last_synced:
@@ -126,16 +131,23 @@ def apply() -> None:
                     for i in sync_state
                     if datetime.fromisoformat(i["timestamp"]) >= last_synced_dt - buffer
                 ]
+                logging.info(
+                    f"{len(sync_state)} items updated since last sync. Applying..."
+                )
 
+            start = time.time()
             with ThreadPoolExecutor() as executor:
                 futures = [executor.submit(process_item, item) for item in sync_state]
                 for future in tqdm(as_completed(futures), total=len(futures)):
                     future.result()
+            end = time.time()
+            logging.info(
+                f"Sync status indicators for {len(sync_state)} items applied in {end - start:.2f} seconds."
+            )
 
             update_last_synced(timestamp=sync_state_fetch_timestamp)
     except PidFileError:
-        # A previous instance is still running, skip this run
-        pass
+        logging.info("Another instance is still running. Skipping this run.")
 
 
 apply()
